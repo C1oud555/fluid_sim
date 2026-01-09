@@ -245,25 +245,28 @@ fn draw_egui(
                     .text("collapse_loss"),
             );
             ui.separator();
-            if ui.button("Add Particle").clicked() {
-                let mut rng = rand::rng();
-                state.simu.add_paticle(
-                    &state.device,
-                    Particle {
-                        position: Vec2::new(
-                            rng.random_range(-1.0..1.0),
-                            rng.random_range(-1.0..1.0),
-                        ),
-                        velocity: Vec2::new(
-                            rng.random_range(-1.0..1.0),
-                            rng.random_range(-1.0..1.0),
-                        ),
-                    },
-                );
-            }
-            if ui.button("clear Particle").clicked() {
-                state.simu.clear_paticle(&state.device);
-            }
+            ui.horizontal(|ui| {
+                if ui.button("Add Particle").clicked() {
+                    let mut rng = rand::rng();
+                    state.simu.add_paticle(
+                        &state.device,
+                        Particle {
+                            position: Vec2::new(
+                                rng.random_range(-1.0..1.0),
+                                rng.random_range(-1.0..1.0),
+                            ),
+                            velocity: Vec2::new(
+                                rng.random_range(-1.0..1.0),
+                                rng.random_range(-1.0..1.0),
+                            ),
+                        },
+                    );
+                }
+                ui.separator();
+                if ui.button("clear Particle").clicked() {
+                    state.simu.clear_paticle(&state.device);
+                }
+            });
         });
 
     state.egui_renderer.end_frame_and_draw(
