@@ -1,7 +1,9 @@
 use crate::egui_tools::EguiRenderer;
-use crate::simulation::Simulation;
+use crate::simulation::{Particle, Simulation};
 
+use egui::Vec2;
 use egui_wgpu::{ScreenDescriptor, wgpu};
+use rand::Rng;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
@@ -176,6 +178,7 @@ impl App {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
+        state.simu.update();
         draw_particles(state, &mut encoder, &surface_view);
 
         draw_egui(window, state, &mut encoder, &surface_view);
@@ -211,7 +214,7 @@ fn draw_particles(
         occlusion_query_set: None,
     });
 
-    state.simu.render(&mut render_pass);
+    state.simu.render(&mut state.queue, &mut render_pass);
 }
 
 fn draw_egui(
@@ -229,9 +232,38 @@ fn draw_egui(
     egui::Window::new("simulation params")
         .resizable(true)
         .vscroll(true)
-        .default_open(false)
+        .default_open(true)
         .show(state.egui_renderer.context(), |ui| {
-            ui.add(egui::Slider::new(&mut state.simu.param.radius, 0.0..=0.5).text("radius"));
+            ui.add(egui::Slider::new(&mut state.simu.param.radius, 0.01..=0.05).text("radius"));
+            ui.separator();
+            ui.add(
+                egui::Slider::new(&mut state.simu.param.gravity_acc, -1.0..=1.0).text("gravity"),
+            );
+            ui.separator();
+            ui.add(
+                egui::Slider::new(&mut state.simu.param.collapse_loss, -0.9..=0.9)
+                    .text("collapse_loss"),
+            );
+            ui.separator();
+            if ui.button("Add Particle").clicked() {
+                let mut rng = rand::rng();
+                state.simu.add_paticle(
+                    &state.device,
+                    Particle {
+                        position: Vec2::new(
+                            rng.random_range(-1.0..1.0),
+                            rng.random_range(-1.0..1.0),
+                        ),
+                        velocity: Vec2::new(
+                            rng.random_range(-1.0..1.0),
+                            rng.random_range(-1.0..1.0),
+                        ),
+                    },
+                );
+            }
+            if ui.button("clear Particle").clicked() {
+                state.simu.clear_paticle(&state.device);
+            }
         });
 
     state.egui_renderer.end_frame_and_draw(
