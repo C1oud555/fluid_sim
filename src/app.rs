@@ -1,4 +1,6 @@
 use crate::egui_tools::EguiRenderer;
+use crate::simulation::Simulation;
+
 use egui_wgpu::{ScreenDescriptor, wgpu};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -7,6 +9,8 @@ use winit::event::WindowEvent;
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowId};
 
+pub const TEXTURE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Bgra8UnormSrgb;
+
 pub struct AppState {
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
@@ -14,6 +18,8 @@ pub struct AppState {
     pub surface: wgpu::Surface<'static>,
     pub scale_factor: f32,
     pub egui_renderer: EguiRenderer,
+
+    pub simu: Simulation,
 }
 
 impl AppState {
@@ -48,7 +54,7 @@ impl AppState {
             .expect("Failed to create device");
 
         let swapchain_capabilities = surface.get_capabilities(&adapter);
-        let selected_format = wgpu::TextureFormat::Bgra8UnormSrgb;
+        let selected_format = TEXTURE_FORMAT;
         let swapchain_format = swapchain_capabilities
             .formats
             .iter()
@@ -72,6 +78,8 @@ impl AppState {
 
         let scale_factor = 1.0;
 
+        let simu = Simulation::new(&device);
+
         Self {
             device,
             queue,
@@ -79,6 +87,7 @@ impl AppState {
             surface_config,
             egui_renderer,
             scale_factor,
+            simu,
         }
     }
 
@@ -164,20 +173,49 @@ impl App {
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
-        draw_egui(window, state, &mut encoder, surface_view);
+        draw_particles(state, &mut encoder, &surface_view);
 
-        // draw_particles();
+        draw_egui(window, state, &mut encoder, &surface_view);
 
         state.queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
 }
 
+fn draw_particles(
+    state: &mut AppState,
+    encoder: &mut wgpu::CommandEncoder,
+    surface_view: &wgpu::TextureView,
+) {
+    let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        label: Some("simu render pass"),
+        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+            view: surface_view,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color {
+                    r: 0.1,
+                    g: 0.2,
+                    b: 0.3,
+                    a: 1.0,
+                }),
+                store: wgpu::StoreOp::Store,
+            },
+        })],
+        depth_stencil_attachment: None,
+        timestamp_writes: None,
+        occlusion_query_set: None,
+    });
+
+    state.simu.render(&mut render_pass);
+}
+
 fn draw_egui(
     window: &Window,
     state: &mut AppState,
     encoder: &mut wgpu::CommandEncoder,
-    surface_view: wgpu::TextureView,
+    surface_view: &wgpu::TextureView,
 ) {
     let screen_descriptor = ScreenDescriptor {
         size_in_pixels: [state.surface_config.width, state.surface_config.height],
@@ -216,7 +254,7 @@ fn draw_egui(
         &state.queue,
         encoder,
         window,
-        &surface_view,
+        surface_view,
         screen_descriptor,
     );
 }

@@ -1,7 +1,7 @@
 mod app;
+mod circle_mesh;
 mod egui_tools;
 mod simulation;
-
 use winit::event_loop::{ControlFlow, EventLoop};
 
 fn main() {

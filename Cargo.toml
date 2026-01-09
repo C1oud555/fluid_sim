@@ -9,3 +9,5 @@ egui-wgpu = { version = "0.33", features = ["winit"] }
 egui-winit = "0.33.1"
 winit = "0.30.12"
 pollster = "0.4.0"
+bytemuck = "1.24.0"
+cgmath = "0.18.0"
