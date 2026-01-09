@@ -1,0 +1,11 @@
+[package]
+name = "sph_rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+egui = "0.33"
+egui-wgpu = { version = "0.33", features = ["winit"] }
+egui-winit = "0.33.1"
+winit = "0.30.12"
+pollster = "0.4.0"
