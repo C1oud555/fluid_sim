@@ -16,7 +16,6 @@ pub struct AppState {
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub surface: wgpu::Surface<'static>,
-    pub scale_factor: f32,
     pub egui_renderer: EguiRenderer,
 
     pub simu: Simulation,
@@ -40,12 +39,16 @@ impl AppState {
             .await
             .expect("Failed to find an appropriate adapter");
 
-        let features = wgpu::Features::empty();
+        let required_features = wgpu::Features::PUSH_CONSTANTS;
+        let required_limits = wgpu::Limits {
+            max_push_constant_size: 4,
+            ..Default::default()
+        };
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: None,
-                required_features: features,
-                required_limits: Default::default(),
+                required_features,
+                required_limits,
                 memory_hints: Default::default(),
                 trace: Default::default(),
                 experimental_features: Default::default(),
@@ -76,8 +79,6 @@ impl AppState {
 
         let egui_renderer = EguiRenderer::new(&device, surface_config.format, None, 1, window);
 
-        let scale_factor = 1.0;
-
         let simu = Simulation::new(&device);
 
         Self {
@@ -86,7 +87,6 @@ impl AppState {
             surface,
             surface_config,
             egui_renderer,
-            scale_factor,
             simu,
         }
     }
@@ -219,34 +219,16 @@ fn draw_egui(
 ) {
     let screen_descriptor = ScreenDescriptor {
         size_in_pixels: [state.surface_config.width, state.surface_config.height],
-        pixels_per_point: window.scale_factor() as f32 * state.scale_factor,
+        pixels_per_point: window.scale_factor() as f32,
     };
     state.egui_renderer.begin_frame(window);
 
-    egui::Window::new("winit + egui + wgpu says hello!")
+    egui::Window::new("simulation params")
         .resizable(true)
         .vscroll(true)
         .default_open(false)
         .show(state.egui_renderer.context(), |ui| {
-            ui.label("Label!");
-
-            if ui.button("Button!").clicked() {
-                println!("boom!")
-            }
-
-            ui.separator();
-            ui.horizontal(|ui| {
-                ui.label(format!(
-                    "Pixels per point: {}",
-                    state.egui_renderer.context().pixels_per_point()
-                ));
-                if ui.button("-").clicked() {
-                    state.scale_factor = (state.scale_factor - 0.1).max(0.3);
-                }
-                if ui.button("+").clicked() {
-                    state.scale_factor = (state.scale_factor + 0.1).min(3.0);
-                }
-            });
+            ui.add(egui::Slider::new(&mut state.simu.param.radius, 0.0..=0.5).text("radius"));
         });
 
     state.egui_renderer.end_frame_and_draw(

@@ -3,7 +3,7 @@ use egui_wgpu::wgpu::{self, util::DeviceExt};
 use crate::{app::TEXTURE_FORMAT, circle_mesh::CircleMesh};
 
 pub struct SimuParams {
-    radius: f32,
+    pub radius: f32,
 }
 
 #[repr(C)]
@@ -14,7 +14,7 @@ pub struct Particle {
 }
 
 pub struct Simulation {
-    param: SimuParams,
+    pub param: SimuParams,
     render_pipeline: wgpu::RenderPipeline,
     particles: Vec<Particle>,
 
@@ -31,11 +31,16 @@ impl Simulation {
             source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
         });
 
+        let push_constant_ranges = &[wgpu::PushConstantRange {
+            stages: wgpu::ShaderStages::VERTEX,
+            range: 0..4,
+        }];
+
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("simu render pipeline layout"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                push_constant_ranges,
             });
 
         let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -138,10 +143,6 @@ impl Simulation {
         }
     }
 
-    pub fn udpate_params(&mut self) {
-        todo!()
-    }
-
     pub fn update(&mut self) {}
 
     pub fn add_paticle(&mut self, par: Particle) {
@@ -157,6 +158,12 @@ impl Simulation {
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
 
         render_pass.set_index_buffer(self.indice_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+        render_pass.set_push_constants(
+            wgpu::ShaderStages::VERTEX,
+            0,
+            bytemuck::bytes_of(&self.param.radius),
+        );
         render_pass.draw_indexed(0..self.index_count, 0, 0..particle_count);
     }
 }

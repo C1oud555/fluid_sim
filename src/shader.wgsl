@@ -1,3 +1,9 @@
+struct PushConstants {
+  radius: f32,
+};
+
+var<push_constant> push_constants: PushConstants;
+
 struct VertexInput {
   @location(0) position: vec2<f32>,
 };
@@ -19,7 +25,7 @@ fn vs_main(
 ) -> VertexOutput {
   var out: VertexOutput;
 
-  let world_pos = particle.position * 0.03 + instance.position;
+  let world_pos = particle.position * push_constants.radius + instance.position;
 
   out.clip_position = vec4<f32>(world_pos, 0.0, 1.0);
   out.color = vec3<f32>(1.0, 0.0, 0.0);
