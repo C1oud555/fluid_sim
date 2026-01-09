@@ -4,6 +4,7 @@ use crate::{app::TEXTURE_FORMAT, circle_mesh::CircleMesh};
 
 pub struct SimuParams {
     pub radius: f32,
+    pub aspect_ratio: f32,
 }
 
 #[repr(C)]
@@ -33,7 +34,7 @@ impl Simulation {
 
         let push_constant_ranges = &[wgpu::PushConstantRange {
             stages: wgpu::ShaderStages::VERTEX,
-            range: 0..4,
+            range: 0..8,
         }];
 
         let render_pipeline_layout =
@@ -106,7 +107,10 @@ impl Simulation {
             },
         ];
 
-        let param = SimuParams { radius: 0.1 };
+        let param = SimuParams {
+            radius: 0.1,
+            aspect_ratio: 1.0,
+        };
         let circle_mesh = CircleMesh::new(16);
         let index_count = circle_mesh.indices.len() as u32;
 
@@ -162,7 +166,7 @@ impl Simulation {
         render_pass.set_push_constants(
             wgpu::ShaderStages::VERTEX,
             0,
-            bytemuck::bytes_of(&self.param.radius),
+            bytemuck::bytes_of(&[self.param.radius, self.param.aspect_ratio]),
         );
         render_pass.draw_indexed(0..self.index_count, 0, 0..particle_count);
     }

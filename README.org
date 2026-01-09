@@ -1,7 +1,7 @@
 * A fluid simulator
   based on winit, wgpu, egui.
 
-* TODO what's next? [0/3]
-  - [ ] ndc transform
+* TODO what's next? [1/3]
+  - [X] ndc transform - by aspect_ratio for 2d
   - [ ] force apply
   - [ ] fluid simu

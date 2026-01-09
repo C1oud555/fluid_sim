@@ -1,5 +1,6 @@
 struct PushConstants {
   radius: f32,
+  aspect_ratio: f32,
 };
 
 var<push_constant> push_constants: PushConstants;
@@ -25,7 +26,11 @@ fn vs_main(
 ) -> VertexOutput {
   var out: VertexOutput;
 
-  let world_pos = particle.position * push_constants.radius + instance.position;
+  let corrected_radius_x = push_constants.radius / push_constants.aspect_ratio;
+  let world_pos = vec2<f32>(
+    instance.position.x + particle.position.x * corrected_radius_x,
+    instance.position.y + particle.position.y * push_constants.radius,
+  );
 
   out.clip_position = vec4<f32>(world_pos, 0.0, 1.0);
   out.color = vec3<f32>(1.0, 0.0, 0.0);

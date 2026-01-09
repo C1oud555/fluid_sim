@@ -41,7 +41,7 @@ impl AppState {
 
         let required_features = wgpu::Features::PUSH_CONSTANTS;
         let required_limits = wgpu::Limits {
-            max_push_constant_size: 4,
+            max_push_constant_size: 8,
             ..Default::default()
         };
         let (device, queue) = adapter
@@ -142,6 +142,9 @@ impl App {
     fn handle_resized(&mut self, width: u32, height: u32) {
         if width > 0 && height > 0 {
             self.state.as_mut().unwrap().resize_surface(width, height);
+        }
+        if let Some(state) = self.state.as_mut() {
+            state.simu.param.aspect_ratio = width as f32 / height as f32;
         }
     }
 
@@ -246,7 +249,11 @@ impl ApplicationHandler for App {
         let window = event_loop
             .create_window(Window::default_attributes())
             .unwrap();
+        let (width, height) = (window.inner_size().width, window.inner_size().height);
         pollster::block_on(self.set_window(window));
+        if let Some(state) = self.state.as_mut() {
+            state.simu.param.aspect_ratio = width as f32 / height as f32;
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
