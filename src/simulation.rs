@@ -164,17 +164,38 @@ impl Simulation {
         // apply force
         let delta = self.lastframe_timestamp.elapsed().as_secs_f32();
 
+        self.move_particle(delta);
+
+        self.apply_force(Vec2::new(0.0, self.param.gravity_acc), delta);
+
+        self.lastframe_timestamp = Instant::now();
+    }
+
+    pub fn apply_force(&mut self, force: Vec2, delta: f32) {
+        let (fx, fy) = (force.x, force.y);
         for particle in self.particles.iter_mut() {
             if particle.position.y.abs() >= 1.0 {
-                particle.position.y -= particle.velocity.y * delta * 3.0;
                 particle.velocity.y = -particle.velocity.y * (1.0 - self.param.collapse_loss);
+            } else if particle.position.x.abs() >= 1.0 {
+                particle.velocity.x = -particle.velocity.x * (1.0 - self.param.collapse_loss);
             } else {
-                particle.velocity.y += self.param.gravity_acc * delta;
+                particle.velocity.x += fx * delta;
+                particle.velocity.y += fy * delta;
+            }
+        }
+    }
+
+    pub fn move_particle(&mut self, delta: f32) {
+        for particle in self.particles.iter_mut() {
+            if particle.position.y.abs() >= 1.0 {
+                particle.position.y += particle.velocity.y * delta * 3.0;
+            } else if particle.position.x.abs() >= 1.0 {
+                particle.position.x += particle.velocity.x * delta * 3.0;
+            } else {
+                particle.position.x += particle.velocity.x * delta;
                 particle.position.y += particle.velocity.y * delta;
             }
         }
-
-        self.lastframe_timestamp = Instant::now();
     }
 
     pub fn add_paticle(&mut self, device: &wgpu::Device, par: Particle) {
