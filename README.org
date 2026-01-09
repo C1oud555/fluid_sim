@@ -1,5 +1,7 @@
+* A fluid simulator
+  based on winit, wgpu, egui.
 
-* TODO what's next? 
-  [ ] ndc transform
-  [ ] force apply
-  [ ] fluid simu
+* TODO what's next? [0/3]
+  - [ ] ndc transform
+  - [ ] force apply
+  - [ ] fluid simu
