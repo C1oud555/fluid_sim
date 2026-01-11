@@ -5,26 +5,39 @@ pub fn build(b: *std.Build) void {
 
     const optimize = b.standardOptimizeOption(.{});
 
-    const mod = b.addModule("z_render", .{
+    const mod = b.addModule("fuild_sim", .{
         .root_source_file = b.path("src/root.zig"),
 
         .target = target,
     });
 
-    const exe = b.addExecutable(.{
-        .name = "z_render",
-        .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+    const exe_mod = b.addModule("fluid_sim_exe", .{
+        .root_source_file = b.path("src/main.zig"),
 
-            .target = target,
-            .optimize = optimize,
+        .target = target,
+        .optimize = optimize,
 
-            .imports = &.{
-                .{ .name = "z_render", .module = mod },
-            },
-        }),
+        .imports = &.{
+            .{ .name = "fluid_sim", .module = mod },
+        },
     });
 
+    const exe = b.addExecutable(.{
+        .name = "fuild_sim",
+        .root_module = exe_mod,
+    });
+
+    b.installArtifact(exe);
+
+    const exe_check = b.addExecutable(.{
+        .name = "fuild_sim_check",
+        .root_module = exe_mod,
+    });
+
+    const check = b.step("check", "Check if project compiles");
+    check.dependOn(&exe_check.step);
+
+    // raylib dep
     const raylib_dep = b.dependency("raylib_zig", .{
         .target = target,
         .optimize = optimize,
@@ -35,8 +48,6 @@ pub fn build(b: *std.Build) void {
     exe.linkLibrary(raylib_artifact);
     exe.root_module.addImport("raylib", raylib);
     exe.root_module.addImport("raygui", raygui);
-
-    b.installArtifact(exe);
 
     const run_step = b.step("run", "Run the app");
 
