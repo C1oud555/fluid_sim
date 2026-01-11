@@ -1,19 +1,43 @@
 const std = @import("std");
+const rl = @import("raylib");
 
-pub fn bufferedPrint() !void {
-    var stdout_buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&stdout_buffer);
-    const stdout = &stdout_writer.interface;
+pub const Simu = @This();
 
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
+pub const Params = struct {
+    radius: f32,
+};
 
-    try stdout.flush();
+pub const Particle = struct {
+    x: i32,
+    y: i32,
+};
+
+// field
+params: Params,
+allocator: std.mem.Allocator,
+particles: std.ArrayList(Particle),
+
+// methods
+pub fn init(allocator_: std.mem.Allocator) !Simu {
+    return Simu{
+        .params = .{ .radius = 10.0 },
+        .allocator = allocator_,
+        .particles = try std.ArrayList(Particle).initCapacity(allocator_, 2),
+    };
 }
 
-pub fn add(a: i32, b: i32) i32 {
-    return a + b;
+pub fn addParticle(self: *Simu, item: Particle) void {
+    self.particles.append(self.allocator, item) catch {
+        std.debug.print("push particle failed\n", .{});
+    };
 }
 
-test "basic add functionality" {
-    try std.testing.expect(add(3, 7) == 10);
+pub fn deinit(self: *Simu) void {
+    self.particles.deinit(self.allocator);
+}
+
+pub fn render(self: Simu) void {
+    for (self.particles.items) |particle| {
+        rl.drawCircle(particle.x, particle.y, self.params.radius, .red);
+    }
 }
