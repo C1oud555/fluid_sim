@@ -27,14 +27,14 @@ pub fn main() anyerror!void {
 
     rl.setTargetFPS(60);
 
-    const control_rect = rl.Rectangle{ .x = 10, .y = 10, .width = 50, .height = 50 };
+    const control_rect = rl.Rectangle{ .x = 20, .y = 2, .width = 50, .height = 10 };
 
     while (!rl.windowShouldClose()) {
         rl.beginDrawing();
         defer rl.endDrawing();
 
         rl.clearBackground(.white);
-        _ = rgui.slider(control_rect, "", "", &radius, 10.0, 20.0);
+        _ = rgui.slider(control_rect, "10", "20", &radius, 10.0, 20.0);
         for (particles.items) |particle| {
             rl.drawCircle(particle.x, particle.y, radius, .red);
         }
