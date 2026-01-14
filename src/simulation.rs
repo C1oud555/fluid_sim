@@ -186,8 +186,8 @@ impl Simulation {
         let spacing = 10.0;
         let start = [-200.0, -200.0];
 
-        for x in 0..100 {
-            for y in 0..50 {
+        for x in 0..150 {
+            for y in 0..150 {
                 particles.push(Particle {
                     position: [x as f32 * spacing + start[0], y as f32 * spacing + start[1]],
                 });
