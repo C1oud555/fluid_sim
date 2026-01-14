@@ -257,10 +257,6 @@ fn draw_egui(
                                 rng.random_range(-(width as f32) / 2.0..width as f32 / 2.0),
                                 rng.random_range(-(height as f32) / 2.0..height as f32 / 2.0),
                             ),
-                            velocity: Vec2::new(
-                                rng.random_range(-10.0..10.0),
-                                rng.random_range(-1.0..1.0),
-                            ),
                         },
                     );
                 }

@@ -6,6 +6,18 @@ use winit::dpi::PhysicalSize;
 
 use crate::simu_render::SimuRender;
 
+use std::f32::consts::PI;
+const H: f32 = 16.0;
+const HSQ: f32 = H * H;
+
+const REST_DENS: f32 = 300.0;
+const GAS_CONST: f32 = 2000.0;
+const VISC: f32 = 200.0;
+
+static POLY6: f32 = 4.0 / (PI * H * H * H * H * H * H * H * H);
+static SPIKY_GRAD: f32 = -10.0 / (PI * H * H * H * H * H);
+static VISC_LAP: f32 = 40.0 / (PI * H * H * H * H * H);
+
 pub struct SimuParams {
     pub radius: f32,
     pub mass: f32,
@@ -29,13 +41,21 @@ impl Default for SimuParams {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Particle {
     pub position: Vec2,
+}
+
+#[derive(Default, Clone, Copy)]
+pub struct ParProperty {
     pub velocity: Vec2,
+    pub density: f32,
+    pub pressure: f32,
+    pub force: Vec2,
 }
 
 pub struct Simulation {
     pub param: SimuParams,
     pub box_size: (f32, f32),
     particles: Vec<Particle>,
+    properties: Vec<ParProperty>,
 
     render: SimuRender,
     lastframe_timestamp: Instant,
@@ -44,6 +64,7 @@ pub struct Simulation {
 impl Simulation {
     pub fn new(device: &wgpu::Device, window_size: &PhysicalSize<u32>) -> Self {
         let mut particles = vec![];
+        let mut properties = vec![];
         let spacing = 15.0;
         let start = Vec2::new(-200.0, -200.0);
 
@@ -51,8 +72,8 @@ impl Simulation {
             for y in 0..50 {
                 particles.push(Particle {
                     position: Vec2::new(x as f32 * spacing, y as f32 * spacing) + start,
-                    velocity: Vec2::ZERO,
-                })
+                });
+                properties.push(ParProperty::default());
             }
         }
 
@@ -65,6 +86,7 @@ impl Simulation {
             box_size: (window_size.width as f32, window_size.height as f32),
             render,
             lastframe_timestamp: Instant::now(),
+            properties,
         }
     }
 
@@ -72,44 +94,92 @@ impl Simulation {
         // apply force
         let delta = self.lastframe_timestamp.elapsed().as_secs_f32();
 
-        self.apply_force(Vec2::new(0.0, self.param.gravity), delta);
+        self.compute_density_pressure();
+        self.compute_force();
+
+        self.apply_force(delta);
 
         self.move_particle(delta);
 
         self.lastframe_timestamp = Instant::now();
     }
 
-    pub fn apply_force(&mut self, force: Vec2, delta: f32) {
-        let (fx, fy) = (force.x * self.param.mass, force.y * self.param.mass);
-        for particle in self.particles.iter_mut() {
+    fn compute_density_pressure(&mut self) {
+        for (prop, particle) in self.properties.iter_mut().zip(&self.particles) {
+            prop.density = 0.0;
+            for j in 0..self.particles.len() {
+                let distance = particle.position - self.particles[j].position;
+                let r2 = distance.length_sq();
+                if r2 < HSQ {
+                    prop.density += self.param.mass * POLY6 * f32::powf(HSQ - r2, 3.0);
+                }
+            }
+            prop.pressure = GAS_CONST * (prop.density - REST_DENS);
+        }
+    }
+
+    fn compute_force(&mut self) {
+        for i in 0..self.particles.len() {
+            let mut fpressure = Vec2::ZERO;
+            let mut fvisc = Vec2::ZERO;
+            for j in 0..self.particles.len() {
+                if i == j {
+                    continue;
+                }
+                let other = self.properties[j].clone();
+                let this = &mut self.properties[i];
+                let rji = self.particles[j].position - self.particles[i].position;
+                let r = rji.length();
+                if r < H {
+                    fpressure +=
+                        -rji.normalized() * self.param.mass * (this.pressure + other.pressure)
+                            / (2.0 * other.density)
+                            * SPIKY_GRAD
+                            * f32::powf(H - r, 3.0);
+                    fvisc = VISC * self.param.mass * (other.velocity - this.velocity)
+                        / other.density
+                        * VISC_LAP
+                        * (H - r);
+                }
+            }
+            let fgrav =
+                Vec2::new(0.0, self.param.gravity) * self.param.mass / self.properties[i].density;
+            self.properties[i].force = fpressure + fvisc + fgrav;
+        }
+    }
+
+    pub fn apply_force(&mut self, delta: f32) {
+        for (particle, prop) in self.particles.iter_mut().zip(self.properties.iter_mut()) {
+            let (fx, fy) = (prop.force.x, prop.force.y);
             if particle.position.x >= self.box_size.0 {
                 particle.position.x -= 3.0;
-                particle.velocity.x = -particle.velocity.x * self.param.boundary_damping;
+                prop.velocity.x = -prop.velocity.x * self.param.boundary_damping;
             } else if particle.position.x <= -self.box_size.0 {
                 particle.position.x += 3.0;
-                particle.velocity.x = -particle.velocity.x * self.param.boundary_damping;
+                prop.velocity.x = -prop.velocity.x * self.param.boundary_damping;
             } else if particle.position.y >= self.box_size.1 {
                 particle.position.y -= 3.0;
-                particle.velocity.y = -particle.velocity.y * self.param.boundary_damping;
+                prop.velocity.y = -prop.velocity.y * self.param.boundary_damping;
             } else if particle.position.y <= -self.box_size.1 {
                 particle.position.y += 3.0;
-                particle.velocity.y = -particle.velocity.y * self.param.boundary_damping;
+                prop.velocity.y = -prop.velocity.y * self.param.boundary_damping;
             } else {
-                particle.velocity.x += fx * delta;
-                particle.velocity.y += fy * delta;
+                prop.velocity.x += fx * delta;
+                prop.velocity.y += fy * delta;
             }
         }
     }
 
     pub fn move_particle(&mut self, delta: f32) {
-        for particle in self.particles.iter_mut() {
-            particle.position.x += particle.velocity.x * delta;
-            particle.position.y += particle.velocity.y * delta;
+        for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
+            particle.position.x += prop.velocity.x * delta;
+            particle.position.y += prop.velocity.y * delta;
         }
     }
 
     pub fn add_paticle(&mut self, device: &wgpu::Device, par: Particle) {
         self.particles.push(par);
+        self.properties.push(ParProperty::default());
         // update buffer layout
 
         self.render.instance_buffer =

@@ -17,7 +17,6 @@ struct VertexInput {
 
 struct InstanceInput {
   @location(1) position: vec2<f32>,
-  @location(2) velocity: vec2<f32>,
 }
 
 struct VertexOutput {

@@ -88,7 +88,6 @@ impl SimuRender {
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &wgpu::vertex_attr_array![
                             1 => Float32x2,
-                            2 => Float32x2,
                         ],
                     },
                 ],
