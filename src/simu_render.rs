@@ -18,6 +18,7 @@ pub struct SimuRender {
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
     pub uniforms: [[f32; 4]; 4],
+    pub particles: Vec<Particle>,
 }
 
 impl SimuRender {
@@ -87,7 +88,11 @@ impl SimuRender {
                         array_stride: std::mem::size_of::<Particle>() as wgpu::BufferAddress,
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &wgpu::vertex_attr_array![
-                            1 => Float32x2,
+                            1 => Float32x2,  // position
+                            2 => Float32x2,  // velocity (unused in shader)
+                            3 => Float32,    // density (unused in shader)
+                            4 => Float32,    // pressure (unused in shader)
+                            5 => Float32x3,  // color
                         ],
                     },
                 ],
@@ -137,9 +142,12 @@ impl SimuRender {
             usage: wgpu::BufferUsages::INDEX,
         });
 
+        let mut particles_vec = Vec::with_capacity(particles.len());
+        particles_vec.extend_from_slice(particles);
+
         let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(particles),
+            contents: bytemuck::cast_slice(&particles_vec),
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -152,6 +160,7 @@ impl SimuRender {
             uniform_buffer,
             uniform_bind_group,
             uniforms,
+            particles: particles_vec,
         }
     }
 
@@ -166,7 +175,6 @@ impl SimuRender {
 
         if particle_count > 0 {
             queue.write_buffer(&self.instance_buffer, 0, bytemuck::cast_slice(particles));
-            // TODO: performance opt
             queue.write_buffer(
                 &self.uniform_buffer,
                 0,

@@ -1,5 +1,5 @@
 use crate::egui_tools::EguiRenderer;
-use crate::simulation::{Particle, Simulation};
+use crate::simulation::{ColorMode, Particle, Simulation};
 
 use egui_wgpu::{ScreenDescriptor, wgpu};
 use rand::Rng;
@@ -251,6 +251,25 @@ fn draw_egui(
                     .text("boundary_damping"),
             );
             ui.separator();
+            ui.label("Color Mode:");
+            ui.horizontal(|ui| {
+                ui.radio_value(
+                    &mut state.simu.param.color_mode,
+                    ColorMode::Pressure,
+                    "Pressure",
+                );
+                ui.radio_value(
+                    &mut state.simu.param.color_mode,
+                    ColorMode::Velocity,
+                    "Velocity",
+                );
+                ui.radio_value(
+                    &mut state.simu.param.color_mode,
+                    ColorMode::Density,
+                    "Density",
+                );
+            });
+            ui.separator();
             ui.horizontal(|ui| {
                 if ui.button("Add Particle").clicked() {
                     let mut rng = rand::rng();
@@ -261,6 +280,10 @@ fn draw_egui(
                                 rng.random_range(-(width as f32) / 2.0..width as f32 / 2.0),
                                 rng.random_range(-(height as f32) / 2.0..height as f32 / 2.0),
                             ],
+                            velocity: [0.0, 0.0],
+                            density: 0.0,
+                            pressure: 0.0,
+                            color: [0.0, 0.5, 1.0],
                         },
                     );
                 }

@@ -1,8 +1,8 @@
-use std::hash::Hash;
-use std::sync::RwLock;
+use std::time::Instant;
 
 use rustc_hash::FxHashMap;
-use std::time::Instant;
+use std::hash::Hash;
+use std::sync::RwLock;
 
 use rayon::prelude::*;
 
@@ -11,7 +11,6 @@ use winit::dpi::PhysicalSize;
 
 use crate::simu_render::SimuRender;
 
-use std::f32::consts::PI;
 const H: f32 = 16.0;
 const HSQ: f32 = H * H;
 
@@ -19,17 +18,40 @@ const REST_DENS: f32 = 300.0;
 const GAS_CONST: f32 = 2000.0;
 const VISC: f32 = 200.0;
 
-static POLY6: f32 = 4.0 / (PI * H * H * H * H * H * H * H * H);
-static SPIKY_GRAD: f32 = -10.0 / (PI * H * H * H * H * H);
-static VISC_LAP: f32 = 40.0 / (PI * H * H * H * H * H);
+// Compute SPH constants at runtime
+fn poly6() -> f32 {
+    4.0 / (std::f32::consts::PI * H.powi(8))
+}
+
+fn spiky_grad() -> f32 {
+    -10.0 / (std::f32::consts::PI * H.powi(5))
+}
+
+fn visc_lap() -> f32 {
+    40.0 / (std::f32::consts::PI * H.powi(5))
+}
+
+// Color visualization mode
+#[derive(Clone, Copy, PartialEq)]
+pub enum ColorMode {
+    Pressure,
+    Velocity,
+    Density,
+}
+
+impl Default for ColorMode {
+    fn default() -> Self {
+        ColorMode::Pressure
+    }
+}
 
 #[derive(Default, Clone, Copy)]
 pub struct SimuParams {
     pub radius: f32,
     pub mass: f32,
-
     pub gravity: f32,
     pub boundary_damping: f32,
+    pub color_mode: ColorMode,
 }
 
 impl SimuParams {
@@ -39,6 +61,7 @@ impl SimuParams {
             mass: 2.5,
             gravity: -9.8,
             boundary_damping: 0.5,
+            color_mode: ColorMode::Pressure,
         }
     }
 }
@@ -47,6 +70,10 @@ impl SimuParams {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Particle {
     pub position: [f32; 2],
+    pub velocity: [f32; 2],
+    pub density: f32,
+    pub pressure: f32,
+    pub color: [f32; 3],
 }
 
 #[derive(Default, Clone, Copy)]
@@ -58,13 +85,10 @@ pub struct ParProperty {
 }
 
 /// 空间哈希网格 - 用于加速邻居查找
-/// 将空间划分为 grid_size 大小的网格，每个粒子只检查相邻网格
 struct SpatialHash {
     grid: RwLock<FxHashMap<GridCell, Vec<usize>>>,
     grid_size: f32,
-    // 预分配的邻居缓冲区，避免每次 get_neighbors 分配
     neighbor_buffer: RwLock<Vec<usize>>,
-    neighbor_counts: RwLock<Vec<usize>>,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -78,16 +102,13 @@ impl SpatialHash {
         Self {
             grid: RwLock::new(FxHashMap::default()),
             grid_size,
-            // 预分配可容纳 9 个网格的粒子索引的缓冲区
             neighbor_buffer: RwLock::new(Vec::with_capacity(max_particles)),
-            neighbor_counts: RwLock::new(Vec::new()),
         }
     }
 
     fn clear(&self) {
         self.grid.write().unwrap().clear();
         self.neighbor_buffer.write().unwrap().clear();
-        self.neighbor_counts.write().unwrap().clear();
     }
 
     fn insert(&self, idx: usize, pos: [f32; 2]) {
@@ -150,7 +171,6 @@ impl SpatialHash {
         ]
     }
 
-    /// 将邻居索引复制到提供的缓冲区中
     fn fill_neighbors(&self, pos: [f32; 2], buffer: &mut Vec<usize>) {
         let cell = self.get_cell(pos);
         let neighbor_cells = self.get_neighbor_cells(cell);
@@ -171,10 +191,7 @@ pub struct Simulation {
     pub box_size: (f32, f32),
     particles: Vec<Particle>,
     properties: Vec<ParProperty>,
-
-    // 空间哈希网格
     spatial_hash: SpatialHash,
-
     render: SimuRender,
     pub lastframe_timestamp: Instant,
 }
@@ -186,10 +203,14 @@ impl Simulation {
         let spacing = 10.0;
         let start = [-200.0, -200.0];
 
-        for x in 0..150 {
-            for y in 0..150 {
+        for x in 0..100 {
+            for y in 0..50 {
                 particles.push(Particle {
                     position: [x as f32 * spacing + start[0], y as f32 * spacing + start[1]],
+                    velocity: [0.0, 0.0],
+                    density: 0.0,
+                    pressure: 0.0,
+                    color: [0.0, 0.5, 1.0],
                 });
                 properties.push(ParProperty::default());
             }
@@ -205,7 +226,6 @@ impl Simulation {
             render,
             lastframe_timestamp: Instant::now(),
             properties,
-            // 预估最大粒子数 10000，预分配缓冲区
             spatial_hash: SpatialHash::new(H, 10000),
         }
     }
@@ -229,6 +249,9 @@ impl Simulation {
         self.apply_force(delta);
 
         self.move_particle(delta);
+
+        // 更新颜色
+        self.update_colors();
     }
 
     fn compute_density_pressure(&mut self) {
@@ -236,12 +259,10 @@ impl Simulation {
         let param = self.param;
         let spatial_hash = &self.spatial_hash;
 
-        // 并行计算每个粒子的密度
         let new_densities: Vec<f32> = particles
             .par_iter()
             .enumerate()
             .map(|(_i, particle)| {
-                // 每个线程使用本地缓冲区，避免锁竞争
                 let mut buffer = Vec::with_capacity(64);
                 spatial_hash.fill_neighbors(particle.position, &mut buffer);
 
@@ -253,14 +274,13 @@ impl Simulation {
                     let r2 = dx * dx + dy * dy;
 
                     if r2 < HSQ {
-                        density += param.mass * POLY6 * (HSQ - r2).powi(3);
+                        density += param.mass * poly6() * (HSQ - r2).powi(3);
                     }
                 }
                 density
             })
             .collect();
 
-        // 更新密度和压力
         for (i, density) in new_densities.iter().enumerate() {
             self.properties[i].density = *density;
             self.properties[i].pressure = GAS_CONST * (density - REST_DENS);
@@ -273,7 +293,6 @@ impl Simulation {
         let param = self.param;
         let spatial_hash = &self.spatial_hash;
 
-        // 并行计算每个粒子的受力
         let new_forces: Vec<[f32; 2]> = particles
             .par_iter()
             .enumerate()
@@ -282,8 +301,6 @@ impl Simulation {
                 let mut fvisc = [0.0, 0.0];
 
                 let this_prop = properties[i];
-
-                // 每个线程使用本地缓冲区
                 let mut buffer = Vec::with_capacity(64);
                 spatial_hash.fill_neighbors(particle.position, &mut buffer);
 
@@ -300,26 +317,23 @@ impl Simulation {
                     let r = (dx * dx + dy * dy).sqrt();
 
                     if r < H && r > 0.0001 {
-                        // 压力力
                         let r_normalized = [dx / r, dy / r];
                         let pressure_force = -param.mass
                             * (this_prop.pressure + other_prop.pressure)
                             / (2.0 * other_prop.density)
-                            * SPIKY_GRAD
+                            * spiky_grad()
                             * (H - r).powi(3);
 
                         fpressure[0] += r_normalized[0] * pressure_force;
                         fpressure[1] += r_normalized[1] * pressure_force;
 
-                        // 粘滞力 (原始 SPH 公式)
                         let visc_scalar =
-                            VISC * param.mass / other_prop.density * VISC_LAP * (H - r);
+                            VISC * param.mass / other_prop.density * visc_lap() * (H - r);
                         fvisc[0] += (other_prop.velocity[0] - this_prop.velocity[0]) * visc_scalar;
                         fvisc[1] += (other_prop.velocity[1] - this_prop.velocity[1]) * visc_scalar;
                     }
                 }
 
-                // 重力
                 let fgrav = [0.0, param.gravity * param.mass / this_prop.density];
 
                 [
@@ -329,7 +343,6 @@ impl Simulation {
             })
             .collect();
 
-        // 更新力
         for (i, force) in new_forces.iter().enumerate() {
             self.properties[i].force = *force;
         }
@@ -367,6 +380,35 @@ impl Simulation {
         for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
             particle.position[0] += prop.velocity[0] * delta;
             particle.position[1] += prop.velocity[1] * delta;
+        }
+    }
+
+    /// 根据压力/速度/密度更新粒子颜色
+    /// 值越大越明亮，值越小越暗淡
+    fn update_colors(&mut self) {
+        match self.param.color_mode {
+            ColorMode::Pressure => {
+                for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
+                    let t = (prop.pressure / 3000.0).clamp(0.0, 1.0);
+                    let t = t * t * (3.0 - 2.0 * t);
+                    particle.color = [t * 1.0, t * 0.6, t * 0.1];
+                }
+            }
+            ColorMode::Velocity => {
+                for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
+                    let speed = (prop.velocity[0].powi(2) + prop.velocity[1].powi(2)).sqrt();
+                    let t = (speed / 150.0).clamp(0.0, 1.0);
+                    let t = t * t * (3.0 - 2.0 * t);
+                    particle.color = [t * 0.5, t * 1.0, t * 1.0];
+                }
+            }
+            ColorMode::Density => {
+                for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
+                    let t = ((prop.density - REST_DENS * 0.8) / (REST_DENS * 0.4)).clamp(0.0, 1.0);
+                    let t = t * t * (3.0 - 2.0 * t);
+                    particle.color = [t * 0.2, t * 1.0, t * 0.4];
+                }
+            }
         }
     }
 
