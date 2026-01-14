@@ -58,7 +58,7 @@ pub struct Simulation {
     properties: Vec<ParProperty>,
 
     render: SimuRender,
-    lastframe_timestamp: Instant,
+    pub lastframe_timestamp: Instant,
 }
 
 impl Simulation {
@@ -92,7 +92,6 @@ impl Simulation {
 
     pub fn update(&mut self) {
         // apply force
-        let delta = self.lastframe_timestamp.elapsed().as_secs_f32();
         let delta = 0.0007;
 
         self.compute_density_pressure();
@@ -101,8 +100,6 @@ impl Simulation {
         self.apply_force(delta);
 
         self.move_particle(delta);
-
-        self.lastframe_timestamp = Instant::now();
     }
 
     fn compute_density_pressure(&mut self) {

@@ -5,6 +5,7 @@ use egui::Vec2;
 use egui_wgpu::{ScreenDescriptor, wgpu};
 use rand::Rng;
 use std::sync::Arc;
+use std::time::Instant;
 use winit::application::ApplicationHandler;
 use winit::dpi::PhysicalSize;
 use winit::event::WindowEvent;
@@ -153,7 +154,6 @@ impl App {
         let Some(window) = self.window.as_ref() else {
             return;
         };
-        // Attempt to handle minimizing window
         if let Some(true) = window.is_minimized() {
             println!("Window is minimized");
             return;
@@ -185,6 +185,7 @@ impl App {
 
         state.queue.submit(Some(encoder.finish()));
         surface_texture.present();
+        state.simu.lastframe_timestamp = Instant::now();
     }
 }
 
@@ -236,6 +237,10 @@ fn draw_egui(
         .vscroll(true)
         .default_open(false)
         .show(state.egui_renderer.context(), |ui| {
+            ui.label(format!("FPS: {:.1}", {
+                1.0 / (state.simu.lastframe_timestamp.elapsed().as_secs_f32())
+            }));
+            ui.separator();
             ui.add(egui::Slider::new(&mut state.simu.param.radius, 1.0..=10.0).text("radius"));
             ui.separator();
             ui.add(egui::Slider::new(&mut state.simu.param.gravity, -9.8..=9.8).text("gravity"));
