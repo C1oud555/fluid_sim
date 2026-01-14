@@ -1,6 +1,7 @@
-use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Mutex;
+use std::sync::RwLock;
+
+use rustc_hash::FxHashMap;
 use std::time::Instant;
 
 use rayon::prelude::*;
@@ -59,8 +60,11 @@ pub struct ParProperty {
 /// 空间哈希网格 - 用于加速邻居查找
 /// 将空间划分为 grid_size 大小的网格，每个粒子只检查相邻网格
 struct SpatialHash {
-    grid: Mutex<HashMap<GridCell, Vec<usize>>>,
+    grid: RwLock<FxHashMap<GridCell, Vec<usize>>>,
     grid_size: f32,
+    // 预分配的邻居缓冲区，避免每次 get_neighbors 分配
+    neighbor_buffer: RwLock<Vec<usize>>,
+    neighbor_counts: RwLock<Vec<usize>>,
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -70,27 +74,33 @@ struct GridCell {
 }
 
 impl SpatialHash {
-    fn new(grid_size: f32) -> Self {
+    fn new(grid_size: f32, max_particles: usize) -> Self {
         Self {
-            grid: Mutex::new(HashMap::new()),
+            grid: RwLock::new(FxHashMap::default()),
             grid_size,
+            // 预分配可容纳 9 个网格的粒子索引的缓冲区
+            neighbor_buffer: RwLock::new(Vec::with_capacity(max_particles)),
+            neighbor_counts: RwLock::new(Vec::new()),
         }
     }
 
     fn clear(&self) {
-        self.grid.lock().unwrap().clear();
+        self.grid.write().unwrap().clear();
+        self.neighbor_buffer.write().unwrap().clear();
+        self.neighbor_counts.write().unwrap().clear();
     }
 
     fn insert(&self, idx: usize, pos: [f32; 2]) {
         let cell = self.get_cell(pos);
         self.grid
-            .lock()
+            .write()
             .unwrap()
             .entry(cell)
             .or_insert_with(Vec::new)
             .push(idx);
     }
 
+    #[inline]
     fn get_cell(&self, pos: [f32; 2]) -> GridCell {
         GridCell {
             x: (pos[0] / self.grid_size).floor() as i32,
@@ -98,7 +108,7 @@ impl SpatialHash {
         }
     }
 
-    /// 获取相邻的9个网格单元（包含自身）
+    #[inline]
     fn get_neighbor_cells(&self, cell: GridCell) -> [GridCell; 9] {
         [
             GridCell {
@@ -140,19 +150,19 @@ impl SpatialHash {
         ]
     }
 
-    /// 获取指定位置附近的粒子索引
-    fn get_neighbors(&self, pos: [f32; 2]) -> Vec<usize> {
+    /// 将邻居索引复制到提供的缓冲区中
+    fn fill_neighbors(&self, pos: [f32; 2], buffer: &mut Vec<usize>) {
         let cell = self.get_cell(pos);
         let neighbor_cells = self.get_neighbor_cells(cell);
-        let mut neighbors = Vec::new();
 
-        let guard = self.grid.lock().unwrap();
+        let guard = self.grid.read().unwrap();
+        buffer.clear();
+
         for cell in neighbor_cells {
             if let Some(indices) = guard.get(&cell) {
-                neighbors.extend(indices.iter().copied());
+                buffer.extend(indices.iter().copied());
             }
         }
-        neighbors
     }
 }
 
@@ -195,7 +205,8 @@ impl Simulation {
             render,
             lastframe_timestamp: Instant::now(),
             properties,
-            spatial_hash: SpatialHash::new(H), // 网格大小设为粒子影响半径
+            // 预估最大粒子数 10000，预分配缓冲区
+            spatial_hash: SpatialHash::new(H, 10000),
         }
     }
 
@@ -221,7 +232,6 @@ impl Simulation {
     }
 
     fn compute_density_pressure(&mut self) {
-        // 使用 Rayon 并行化
         let particles = &self.particles;
         let param = self.param;
         let spatial_hash = &self.spatial_hash;
@@ -231,10 +241,12 @@ impl Simulation {
             .par_iter()
             .enumerate()
             .map(|(_i, particle)| {
-                let mut density = 0.0;
-                let neighbors = spatial_hash.get_neighbors(particle.position);
+                // 每个线程使用本地缓冲区，避免锁竞争
+                let mut buffer = Vec::with_capacity(64);
+                spatial_hash.fill_neighbors(particle.position, &mut buffer);
 
-                for &j in &neighbors {
+                let mut density = 0.0;
+                for &j in &buffer {
                     let other = particles[j];
                     let dx = other.position[0] - particle.position[0];
                     let dy = other.position[1] - particle.position[1];
@@ -270,9 +282,12 @@ impl Simulation {
                 let mut fvisc = [0.0, 0.0];
 
                 let this_prop = properties[i];
-                let neighbors = spatial_hash.get_neighbors(particle.position);
 
-                for &j in &neighbors {
+                // 每个线程使用本地缓冲区
+                let mut buffer = Vec::with_capacity(64);
+                spatial_hash.fill_neighbors(particle.position, &mut buffer);
+
+                for &j in &buffer {
                     if i == j {
                         continue;
                     }
