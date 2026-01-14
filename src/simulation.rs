@@ -29,7 +29,7 @@ pub struct SimuParams {
 impl Default for SimuParams {
     fn default() -> Self {
         Self {
-            radius: 10.0,
+            radius: 5.0,
             mass: 2.5,
             gravity: -9.8,
             boundary_damping: 0.5,
@@ -68,8 +68,8 @@ impl Simulation {
         let spacing = 10.0;
         let start = Vec2::new(-200.0, -200.0);
 
-        for x in 0..15 {
-            for y in 0..15 {
+        for x in 0..100 {
+            for y in 0..50 {
                 particles.push(Particle {
                     position: Vec2::new(x as f32 * spacing, y as f32 * spacing) + start,
                 });
@@ -152,7 +152,6 @@ impl Simulation {
     pub fn apply_force(&mut self, delta: f32) {
         for (particle, prop) in self.particles.iter_mut().zip(self.properties.iter_mut()) {
             prop.velocity += prop.force * delta / prop.density;
-            println!("force: {}", prop.force);
             if particle.position.x >= self.box_size.0 {
                 particle.position.x -= 3.0;
                 prop.velocity.x *= -self.param.boundary_damping;
