@@ -1,7 +1,6 @@
 use crate::egui_tools::EguiRenderer;
 use crate::simulation::{Particle, Simulation};
 
-use egui::Vec2;
 use egui_wgpu::{ScreenDescriptor, wgpu};
 use rand::Rng;
 use std::sync::Arc;
@@ -258,10 +257,10 @@ fn draw_egui(
                     state.simu.add_paticle(
                         &state.device,
                         Particle {
-                            position: Vec2::new(
+                            position: [
                                 rng.random_range(-(width as f32) / 2.0..width as f32 / 2.0),
                                 rng.random_range(-(height as f32) / 2.0..height as f32 / 2.0),
-                            ),
+                            ],
                         },
                     );
                 }
