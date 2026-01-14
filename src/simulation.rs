@@ -2,24 +2,25 @@ use std::time::Instant;
 
 use egui::Vec2;
 use egui_wgpu::wgpu::{self, util::DeviceExt};
+use winit::dpi::PhysicalSize;
 
-use crate::{app::TEXTURE_FORMAT, circle_mesh::CircleMesh};
+use crate::simu_render::SimuRender;
 
 pub struct SimuParams {
     pub radius: f32,
-    pub aspect_ratio: f32,
+    pub mass: f32,
 
-    pub gravity_acc: f32,
-    pub collapse_loss: f32,
+    pub gravity: f32,
+    pub boundary_damping: f32,
 }
 
 impl Default for SimuParams {
     fn default() -> Self {
         Self {
-            radius: 0.01,
-            aspect_ratio: 1.0,
-            gravity_acc: 0.1,
-            collapse_loss: 0.11,
+            radius: 3.0,
+            mass: 50.0,
+            gravity: 9.8,
+            boundary_damping: 0.95,
         }
     }
 }
@@ -33,129 +34,36 @@ pub struct Particle {
 
 pub struct Simulation {
     pub param: SimuParams,
-    render_pipeline: wgpu::RenderPipeline,
+    pub box_size: (f32, f32),
     particles: Vec<Particle>,
 
-    index_count: u32,
-    vertex_buffer: wgpu::Buffer,
-    indice_buffer: wgpu::Buffer,
-    instance_buffer: wgpu::Buffer,
-
+    render: SimuRender,
     lastframe_timestamp: Instant,
 }
 
 impl Simulation {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("simu Shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
-        });
+    pub fn new(device: &wgpu::Device, window_size: &PhysicalSize<u32>) -> Self {
+        let mut particles = vec![];
+        let spacing = 15.0;
+        let start = Vec2::new(-200.0, -200.0);
 
-        let push_constant_ranges = &[wgpu::PushConstantRange {
-            stages: wgpu::ShaderStages::VERTEX,
-            range: 0..8,
-        }];
-
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("simu render pipeline layout"),
-                bind_group_layouts: &[],
-                push_constant_ranges,
-            });
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("simu render pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: &wgpu::vertex_attr_array![0 => Float32x2],
-                    },
-                    wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<Particle>() as wgpu::BufferAddress,
-                        step_mode: wgpu::VertexStepMode::Instance,
-                        attributes: &wgpu::vertex_attr_array![
-                            1 => Float32x2,
-                            2 => Float32x2,
-                        ],
-                    },
-                ],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: TEXTURE_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-            cache: None,
-        });
-
-        let particles = vec![
-            Particle {
-                position: Vec2::new(0.0, 0.0),
-                velocity: Vec2::new(0.0, 0.0),
-            },
-            Particle {
-                position: Vec2::new(0.2, 0.2),
-                velocity: Vec2::new(0.0, 0.0),
-            },
-        ];
+        for x in 0..50 {
+            for y in 0..50 {
+                particles.push(Particle {
+                    position: Vec2::new(x as f32 * spacing, y as f32 * spacing) + start,
+                    velocity: Vec2::ZERO,
+                })
+            }
+        }
 
         let param = Default::default();
-        let circle_mesh = CircleMesh::new(16);
-        let index_count = circle_mesh.indices.len() as u32;
-
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("vertex buffer"),
-            contents: bytemuck::cast_slice(&circle_mesh.vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        let indice_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("indice buffer"),
-            contents: bytemuck::cast_slice(&circle_mesh.indices),
-            usage: wgpu::BufferUsages::INDEX,
-        });
-
-        let instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&particles),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        let render = SimuRender::new(device, &particles);
 
         Self {
             param,
             particles,
-            render_pipeline,
-            vertex_buffer,
-            indice_buffer,
-            instance_buffer,
-            index_count,
+            box_size: (window_size.width as f32, window_size.height as f32),
+            render,
             lastframe_timestamp: Instant::now(),
         }
     }
@@ -164,20 +72,28 @@ impl Simulation {
         // apply force
         let delta = self.lastframe_timestamp.elapsed().as_secs_f32();
 
-        self.move_particle(delta);
+        self.apply_force(Vec2::new(0.0, self.param.gravity), delta);
 
-        self.apply_force(Vec2::new(0.0, self.param.gravity_acc), delta);
+        self.move_particle(delta);
 
         self.lastframe_timestamp = Instant::now();
     }
 
     pub fn apply_force(&mut self, force: Vec2, delta: f32) {
-        let (fx, fy) = (force.x, force.y);
+        let (fx, fy) = (force.x * self.param.mass, force.y * self.param.mass);
         for particle in self.particles.iter_mut() {
-            if particle.position.y.abs() >= 1.0 {
-                particle.velocity.y = -particle.velocity.y * (1.0 - self.param.collapse_loss);
-            } else if particle.position.x.abs() >= 1.0 {
-                particle.velocity.x = -particle.velocity.x * (1.0 - self.param.collapse_loss);
+            if particle.position.x >= self.box_size.0 {
+                particle.position.x -= 3.0;
+                particle.velocity.x = -particle.velocity.x * self.param.boundary_damping;
+            } else if particle.position.x <= -self.box_size.0 {
+                particle.position.x += 3.0;
+                particle.velocity.x = -particle.velocity.x * self.param.boundary_damping;
+            } else if particle.position.y >= self.box_size.1 {
+                particle.position.y -= 3.0;
+                particle.velocity.y = -particle.velocity.y * self.param.boundary_damping;
+            } else if particle.position.y <= -self.box_size.1 {
+                particle.position.y += 3.0;
+                particle.velocity.y = -particle.velocity.y * self.param.boundary_damping;
             } else {
                 particle.velocity.x += fx * delta;
                 particle.velocity.y += fy * delta;
@@ -187,14 +103,8 @@ impl Simulation {
 
     pub fn move_particle(&mut self, delta: f32) {
         for particle in self.particles.iter_mut() {
-            if particle.position.y.abs() >= 1.0 {
-                particle.position.y += particle.velocity.y * delta * 3.0;
-            } else if particle.position.x.abs() >= 1.0 {
-                particle.position.x += particle.velocity.x * delta * 3.0;
-            } else {
-                particle.position.x += particle.velocity.x * delta;
-                particle.position.y += particle.velocity.y * delta;
-            }
+            particle.position.x += particle.velocity.x * delta;
+            particle.position.y += particle.velocity.y * delta;
         }
     }
 
@@ -202,47 +112,40 @@ impl Simulation {
         self.particles.push(par);
         // update buffer layout
 
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&self.particles),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        self.render.instance_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("instance buffer"),
+                contents: bytemuck::cast_slice(&self.particles),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
     }
 
     pub fn clear_paticle(&mut self, device: &wgpu::Device) {
         self.particles.clear();
         // update buffer layout
 
-        self.instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("instance buffer"),
-            contents: bytemuck::cast_slice(&self.particles),
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-        });
+        self.render.instance_buffer =
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("instance buffer"),
+                contents: bytemuck::cast_slice(&self.particles),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            });
     }
 
     pub fn render(&self, queue: &mut wgpu::Queue, render_pass: &mut wgpu::RenderPass) {
-        let particle_count = self.particles.len() as u32;
+        self.render
+            .render(queue, render_pass, &self.param, &self.particles);
+    }
 
-        if particle_count > 0 {
-            queue.write_buffer(
-                &self.instance_buffer,
-                0,
-                bytemuck::cast_slice(&self.particles),
-            );
+    pub fn update_size(&mut self, width: f32, height: f32) {
+        self.render.uniforms = cgmath::Matrix4::from_cols(
+            cgmath::Vector4::new(1.0 / width, 0.0, 0.0, 0.0),
+            cgmath::Vector4::new(0.0, 1.0 / height, 0.0, 0.0),
+            cgmath::Vector4::new(0.0, 0.0, 1.0, 0.0),
+            cgmath::Vector4::new(0.0, 0.0, 0.0, 1.0),
+        )
+        .into();
 
-            render_pass.set_pipeline(&self.render_pipeline);
-
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-
-            render_pass.set_index_buffer(self.indice_buffer.slice(..), wgpu::IndexFormat::Uint16);
-
-            render_pass.set_push_constants(
-                wgpu::ShaderStages::VERTEX,
-                0,
-                bytemuck::bytes_of(&[self.param.radius, self.param.aspect_ratio]),
-            );
-            render_pass.draw_indexed(0..self.index_count, 0, 0..particle_count);
-        }
+        self.box_size = (width, height);
     }
 }

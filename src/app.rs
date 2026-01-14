@@ -81,7 +81,7 @@ impl AppState {
 
         let egui_renderer = EguiRenderer::new(&device, surface_config.format, None, 1, window);
 
-        let simu = Simulation::new(&device);
+        let simu = Simulation::new(&device, &window.inner_size());
 
         Self {
             device,
@@ -97,6 +97,8 @@ impl AppState {
         self.surface_config.width = width;
         self.surface_config.height = height;
         self.surface.configure(&self.device, &self.surface_config);
+
+        self.simu.update_size(width as f32, height as f32);
     }
 }
 
@@ -145,9 +147,6 @@ impl App {
         if width > 0 && height > 0 {
             self.state.as_mut().unwrap().resize_surface(width, height);
         }
-        if let Some(state) = self.state.as_mut() {
-            state.simu.param.aspect_ratio = width as f32 / height as f32;
-        }
     }
 
     fn handle_redraw(&mut self) {
@@ -179,6 +178,7 @@ impl App {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
 
         state.simu.update();
+
         draw_particles(state, &mut encoder, &surface_view);
 
         draw_egui(window, state, &mut encoder, &surface_view);
@@ -229,20 +229,22 @@ fn draw_egui(
     };
     state.egui_renderer.begin_frame(window);
 
+    let PhysicalSize { width, height } = window.inner_size();
+
     egui::Window::new("simulation params")
         .resizable(true)
         .vscroll(true)
         .default_open(true)
         .show(state.egui_renderer.context(), |ui| {
-            ui.add(egui::Slider::new(&mut state.simu.param.radius, 0.01..=0.05).text("radius"));
+            ui.add(egui::Slider::new(&mut state.simu.param.radius, 1.0..=10.0).text("radius"));
+            ui.separator();
+            ui.add(egui::Slider::new(&mut state.simu.param.gravity, -9.8..=9.8).text("gravity"));
+            ui.separator();
+            ui.add(egui::Slider::new(&mut state.simu.param.mass, -100.0..=100.0).text("mass"));
             ui.separator();
             ui.add(
-                egui::Slider::new(&mut state.simu.param.gravity_acc, -1.0..=1.0).text("gravity"),
-            );
-            ui.separator();
-            ui.add(
-                egui::Slider::new(&mut state.simu.param.collapse_loss, -0.9..=0.9)
-                    .text("collapse_loss"),
+                egui::Slider::new(&mut state.simu.param.boundary_damping, 0.1..=1.0)
+                    .text("boundary_damping"),
             );
             ui.separator();
             ui.horizontal(|ui| {
@@ -252,11 +254,11 @@ fn draw_egui(
                         &state.device,
                         Particle {
                             position: Vec2::new(
-                                rng.random_range(-1.0..1.0),
-                                rng.random_range(-1.0..1.0),
+                                rng.random_range(-(width as f32) / 2.0..width as f32 / 2.0),
+                                rng.random_range(-(height as f32) / 2.0..height as f32 / 2.0),
                             ),
                             velocity: Vec2::new(
-                                rng.random_range(-1.0..1.0),
+                                rng.random_range(-10.0..10.0),
                                 rng.random_range(-1.0..1.0),
                             ),
                         },
@@ -284,11 +286,7 @@ impl ApplicationHandler for App {
         let window = event_loop
             .create_window(Window::default_attributes())
             .unwrap();
-        let (width, height) = (window.inner_size().width, window.inner_size().height);
         pollster::block_on(self.set_window(window));
-        if let Some(state) = self.state.as_mut() {
-            state.simu.param.aspect_ratio = width as f32 / height as f32;
-        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
