@@ -29,10 +29,10 @@ pub struct SimuParams {
 impl Default for SimuParams {
     fn default() -> Self {
         Self {
-            radius: 3.0,
-            mass: 50.0,
-            gravity: 9.8,
-            boundary_damping: 0.95,
+            radius: 10.0,
+            mass: 2.5,
+            gravity: -9.8,
+            boundary_damping: 0.5,
         }
     }
 }
@@ -65,11 +65,11 @@ impl Simulation {
     pub fn new(device: &wgpu::Device, window_size: &PhysicalSize<u32>) -> Self {
         let mut particles = vec![];
         let mut properties = vec![];
-        let spacing = 15.0;
+        let spacing = 10.0;
         let start = Vec2::new(-200.0, -200.0);
 
-        for x in 0..50 {
-            for y in 0..50 {
+        for x in 0..15 {
+            for y in 0..15 {
                 particles.push(Particle {
                     position: Vec2::new(x as f32 * spacing, y as f32 * spacing) + start,
                 });
@@ -93,6 +93,7 @@ impl Simulation {
     pub fn update(&mut self) {
         // apply force
         let delta = self.lastframe_timestamp.elapsed().as_secs_f32();
+        let delta = 0.0007;
 
         self.compute_density_pressure();
         self.compute_force();
@@ -108,8 +109,8 @@ impl Simulation {
         for (prop, particle) in self.properties.iter_mut().zip(&self.particles) {
             prop.density = 0.0;
             for j in 0..self.particles.len() {
-                let distance = particle.position - self.particles[j].position;
-                let r2 = distance.length_sq();
+                let distance = self.particles[j].position - particle.position;
+                let r2 = distance.length() * distance.length();
                 if r2 < HSQ {
                     prop.density += self.param.mass * POLY6 * f32::powf(HSQ - r2, 3.0);
                 }
@@ -126,8 +127,8 @@ impl Simulation {
                 if i == j {
                     continue;
                 }
-                let other = self.properties[j].clone();
-                let this = &mut self.properties[i];
+                let other = self.properties[j];
+                let this = self.properties[i];
                 let rji = self.particles[j].position - self.particles[i].position;
                 let r = rji.length();
                 if r < H {
@@ -136,7 +137,7 @@ impl Simulation {
                             / (2.0 * other.density)
                             * SPIKY_GRAD
                             * f32::powf(H - r, 3.0);
-                    fvisc = VISC * self.param.mass * (other.velocity - this.velocity)
+                    fvisc += VISC * self.param.mass * (other.velocity - this.velocity)
                         / other.density
                         * VISC_LAP
                         * (H - r);
@@ -150,30 +151,27 @@ impl Simulation {
 
     pub fn apply_force(&mut self, delta: f32) {
         for (particle, prop) in self.particles.iter_mut().zip(self.properties.iter_mut()) {
-            let (fx, fy) = (prop.force.x, prop.force.y);
+            prop.velocity += prop.force * delta / prop.density;
+            println!("force: {}", prop.force);
             if particle.position.x >= self.box_size.0 {
                 particle.position.x -= 3.0;
-                prop.velocity.x = -prop.velocity.x * self.param.boundary_damping;
+                prop.velocity.x *= -self.param.boundary_damping;
             } else if particle.position.x <= -self.box_size.0 {
                 particle.position.x += 3.0;
-                prop.velocity.x = -prop.velocity.x * self.param.boundary_damping;
+                prop.velocity.x *= -self.param.boundary_damping;
             } else if particle.position.y >= self.box_size.1 {
                 particle.position.y -= 3.0;
-                prop.velocity.y = -prop.velocity.y * self.param.boundary_damping;
+                prop.velocity.y *= -self.param.boundary_damping;
             } else if particle.position.y <= -self.box_size.1 {
                 particle.position.y += 3.0;
-                prop.velocity.y = -prop.velocity.y * self.param.boundary_damping;
-            } else {
-                prop.velocity.x += fx * delta;
-                prop.velocity.y += fy * delta;
+                prop.velocity.y *= -self.param.boundary_damping;
             }
         }
     }
 
     pub fn move_particle(&mut self, delta: f32) {
         for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
-            particle.position.x += prop.velocity.x * delta;
-            particle.position.y += prop.velocity.y * delta;
+            particle.position += prop.velocity * delta;
         }
     }
 

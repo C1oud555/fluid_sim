@@ -234,7 +234,7 @@ fn draw_egui(
     egui::Window::new("simulation params")
         .resizable(true)
         .vscroll(true)
-        .default_open(true)
+        .default_open(false)
         .show(state.egui_renderer.context(), |ui| {
             ui.add(egui::Slider::new(&mut state.simu.param.radius, 1.0..=10.0).text("radius"));
             ui.separator();
