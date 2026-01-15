@@ -32,17 +32,12 @@ fn visc_lap() -> f32 {
 }
 
 // Color visualization mode
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Default, Clone, Copy, PartialEq)]
 pub enum ColorMode {
+    #[default]
     Pressure,
     Velocity,
     Density,
-}
-
-impl Default for ColorMode {
-    fn default() -> Self {
-        ColorMode::Pressure
-    }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -70,9 +65,6 @@ impl SimuParams {
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Particle {
     pub position: [f32; 2],
-    pub velocity: [f32; 2],
-    pub density: f32,
-    pub pressure: f32,
     pub color: [f32; 3],
 }
 
@@ -117,7 +109,7 @@ impl SpatialHash {
             .write()
             .unwrap()
             .entry(cell)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(idx);
     }
 
@@ -207,9 +199,6 @@ impl Simulation {
             for y in 0..50 {
                 particles.push(Particle {
                     position: [x as f32 * spacing + start[0], y as f32 * spacing + start[1]],
-                    velocity: [0.0, 0.0],
-                    density: 0.0,
-                    pressure: 0.0,
                     color: [0.0, 0.5, 1.0],
                 });
                 properties.push(ParProperty::default());
@@ -388,24 +377,27 @@ impl Simulation {
     fn update_colors(&mut self) {
         match self.param.color_mode {
             ColorMode::Pressure => {
+                let max_pressure = self
+                    .properties
+                    .iter()
+                    .max_by(|this, other| this.pressure.total_cmp(&other.pressure))
+                    .unwrap()
+                    .pressure;
                 for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
-                    let t = (prop.pressure / 3000.0).clamp(0.0, 1.0);
-                    let t = t * t * (3.0 - 2.0 * t);
-                    particle.color = [t * 1.0, t * 0.6, t * 0.1];
+                    let t = prop.pressure / max_pressure;
+                    particle.color = [t * 1.0, 0.0, 0.0];
                 }
             }
             ColorMode::Velocity => {
                 for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
                     let speed = (prop.velocity[0].powi(2) + prop.velocity[1].powi(2)).sqrt();
                     let t = (speed / 150.0).clamp(0.0, 1.0);
-                    let t = t * t * (3.0 - 2.0 * t);
                     particle.color = [t * 0.5, t * 1.0, t * 1.0];
                 }
             }
             ColorMode::Density => {
                 for (particle, prop) in self.particles.iter_mut().zip(&self.properties) {
                     let t = ((prop.density - REST_DENS * 0.8) / (REST_DENS * 0.4)).clamp(0.0, 1.0);
-                    let t = t * t * (3.0 - 2.0 * t);
                     particle.color = [t * 0.2, t * 1.0, t * 0.4];
                 }
             }

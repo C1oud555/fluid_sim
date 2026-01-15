@@ -280,9 +280,6 @@ fn draw_egui(
                                 rng.random_range(-(width as f32) / 2.0..width as f32 / 2.0),
                                 rng.random_range(-(height as f32) / 2.0..height as f32 / 2.0),
                             ],
-                            velocity: [0.0, 0.0],
-                            density: 0.0,
-                            pressure: 0.0,
                             color: [0.0, 0.5, 1.0],
                         },
                     );

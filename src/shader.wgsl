@@ -17,10 +17,7 @@ struct VertexInput {
 
 struct InstanceInput {
   @location(1) position: vec2<f32>,
-  @location(2) velocity: vec2<f32>,
-  @location(3) density: f32,
-  @location(4) pressure: f32,
-  @location(5) color: vec3<f32>,
+  @location(2) color: vec3<f32>,
 };
 
 struct VertexOutput {

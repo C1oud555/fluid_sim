@@ -18,7 +18,6 @@ pub struct SimuRender {
     pub uniform_buffer: wgpu::Buffer,
     pub uniform_bind_group: wgpu::BindGroup,
     pub uniforms: [[f32; 4]; 4],
-    pub particles: Vec<Particle>,
 }
 
 impl SimuRender {
@@ -89,10 +88,7 @@ impl SimuRender {
                         step_mode: wgpu::VertexStepMode::Instance,
                         attributes: &wgpu::vertex_attr_array![
                             1 => Float32x2,  // position
-                            2 => Float32x2,  // velocity (unused in shader)
-                            3 => Float32,    // density (unused in shader)
-                            4 => Float32,    // pressure (unused in shader)
-                            5 => Float32x3,  // color
+                            2 => Float32x3,  // color
                         ],
                     },
                 ],
@@ -160,7 +156,6 @@ impl SimuRender {
             uniform_buffer,
             uniform_bind_group,
             uniforms,
-            particles: particles_vec,
         }
     }
 
